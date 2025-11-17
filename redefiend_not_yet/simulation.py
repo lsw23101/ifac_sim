@@ -2,7 +2,7 @@
 import numpy as np
 from scipy.io import loadmat
 from sympy import isprime
-from enc_func_test import *
+from enc_func_L import *
 import matplotlib.pyplot as plt   # ✅ 플로팅용
 
 ### Todo : Phi 행렬도 가져와서 상태추정도 넣어야...
@@ -294,7 +294,7 @@ for i_state in range(6):
     ax.legend(loc="best", fontsize=8)
 
     if i_state == 0:
-        ax.set_title("Plant States xp vs Estimated States x_hat (j = 1)")
+        ax.set_title("Plant States xp vs Estimated States x_hat_[1, 2, 3]")
 
 axes[-1].set_xlabel("time")
 

@@ -1,8 +1,12 @@
 
+
 import numpy as np
 from scipy.io import loadmat
-from enc_func_test import *
+from enc_func import *
 from sympy import isprime
+
+
+# s = 10000으로 고정해둔 상태.
 
 def compute_offline_mats(env, s=10000, num_channels=60):
     data = loadmat('FGH_data.mat')
@@ -32,11 +36,12 @@ def compute_offline_mats(env, s=10000, num_channels=60):
     Sigma_pinv_all = []
 
     for j in range(num_channels):
-        # 예: H의 j번째 행을 쓴다든지, 지금 설계에 맞게 선택
+        # j 인덱스마다, H의 행벡터에 대하여 좌표변환 행렬 T, V 찾기
         H1 = H_bar[j, :].copy()
 
         T1, T2, T, V, V1, V2 = build_TV(H1, env.q)
 
+        # 식(19) 식
         S_1  = Mod(T1 @ F_bar @ V1, env.q)
         S_2  = Mod(T1 @ F_bar @ V2, env.q)
         S_3  = Mod(T1 @ G_bar,      env.q)
@@ -92,7 +97,7 @@ def compute_offline_mats(env, s=10000, num_channels=60):
     }
     return offline
 
-
+# npz 파일 읽고 쓰기
 def save_offline_mats(offline, filename="offline_mats.npz"):
     np.savez(filename, **offline)
 
@@ -106,4 +111,58 @@ if __name__ == "__main__":
     env = Params()
     offline = compute_offline_mats(env)
     save_offline_mats(offline)
-    print("오프라인 행렬 저장 완료")
+    print("오프라인 행렬 저장 완료\n")
+
+    ##  디버그용 프린트
+
+    F_bar = offline["F_bar"]
+    G_bar = offline["G_bar"]
+    H_bar = offline["H_bar"]
+
+    print("===== F_bar =====")
+    print(F_bar)
+    print("\n===== G_bar =====")
+    print(G_bar)
+    print("\n===== H_bar =====")
+    print(H_bar)
+
+    # === 채널 0의 오프라인 행렬들 출력 ===
+    ch = 0
+    print(f"\n===== Channel {ch} offline matrices =====")
+
+    T1_all         = offline["T1_all"]
+    T2_all         = offline["T2_all"]
+    V1_all         = offline["V1_all"]
+    V2_all         = offline["V2_all"]
+    S_xi_all       = offline["S_xi_all"]
+    S_v_all        = offline["S_v_all"]
+    Psi_all        = offline["Psi_all"]
+    Sigma_all      = offline["Sigma_all"]
+    Sigma_pinv_all = offline["Sigma_pinv_all"]  # 리스트 형태
+
+    print("\nT1:")
+    print(T1_all[ch])
+
+    print("\nT2:")
+    print(T2_all[ch])
+
+    print("\nV1:")
+    print(V1_all[ch])
+
+    print("\nV2:")
+    print(V2_all[ch])
+
+    print("\nS_xi:")
+    print(S_xi_all[ch])
+
+    print("\nS_v]:")
+    print(S_v_all[ch])
+
+    print("\nPsi:")
+    print(Psi_all[ch])
+
+    print("\nSigma:")
+    print(Sigma_all[ch])
+
+    print("\nSigma_pinv:")
+    print(Sigma_pinv_all[ch])

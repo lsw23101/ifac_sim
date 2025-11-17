@@ -59,11 +59,10 @@ l4 = rank(obsv(A, C4));
 l5 = rank(obsv(A, C5));
 
 
-% 칼만 분해
-%% 칼만 분해 + 센서별 observable canonical form
+%% 칼만 분해
 
 % ========= 0) 준비 =========
-% A, B, C1~C5 가 이미 정의되어 있다고 가정
+% 센서별로 시스템 나누기
 
 Ci_list = {C1; C2; C3; C4; C5};
 
@@ -75,7 +74,6 @@ H_raw   = cell(5,1);
 li      = zeros(5,1);    % 각 센서별 관측가능 차원(rank)
 
 
-%% ========= 1) 센서별 가관측 분해 (Φ_i^(obs) 만들기) =========
 for i = 1:5
     Ci = Ci_list{i};
 
@@ -103,7 +101,7 @@ for i = 1:5
 end
 
 
-%% ========= 2) 관측형 표준형(Observable canonical form) 변환 =========
+%% 캐노니컬 폼 
 Phi_final = cell(5,1);   % x -> z_i,can 매핑 (Phi_i = T_i * Phi_i^(obs))
 F_can     = cell(5,1);   % 관측형 canonical F_i
 G_can     = cell(5,1);
@@ -147,7 +145,7 @@ for i = 1:5
 end
 
 
-%% ========= 3) 최종 결과 사용하기 쉽게 정리 =========
+%% 정리
 
 Phi1 = Phi_final{1};   F1 = F_can{1};   B1 = G_can{1};   H1 = H_can{1};
 Phi2 = Phi_final{2};   F2 = F_can{2};   B2 = G_can{2};   H2 = H_can{2};
@@ -155,28 +153,8 @@ Phi3 = Phi_final{3};   F3 = F_can{3};   B3 = G_can{3};   H3 = H_can{3};
 Phi4 = Phi_final{4};   F4 = F_can{4};   B4 = G_can{4};   H4 = H_can{4};
 Phi5 = Phi_final{5};   F5 = F_can{5};   B5 = G_can{5};   H5 = H_can{5};
 
-% Phi_list = {Phi1, Phi2, Phi3, Phi4, Phi5};
-% F_list   = {F1,   F2,   F3,   F4,   F5};
-% 
-% % %% ========= 4) 관계식 검증: 
-% %  F_i  ?=  Phi_i * A * pinv(Phi_i)
-% fprintf("=== 검증: Fi_formula vs Fi (F1~F5) ===\n");
-% 
-% for i = 1:5
-%     Phi_i = Phi_list{i};          % 최종 Φ_i (T_i * Phi_obs_i)
-%     Phi_i_p = pinv(Phi_i);        % 우역행렬 (n x li)
-% 
-%     Fi_formula = Phi_i * A * Phi_i_p;   % li x li
-%     Fi_target  = F_list{i};            % 우리가 쓰는 최종 F_i (= F_can{i})
-% 
-%     err = norm(Fi_formula - Fi_target);
-%     fprintf("Sensor %d:  ||Phi_i*A*pinv(Phi_i) - Fi|| = %.3e\n", i, err);
-% end
 
-
-
-%% F1과 F3는 같고, F4와 F5도 같음 (observable subspace가 동일)
-
+%% F1과 F3는 같고, F4와 F5도 같음 (observable subspace가 동일, 2-redundancy)
 
 % F1: l1 x l1 행렬이라고 할 때
 L1 = F1(:, end);   % 제일 오른쪽 열 (l1 x 1 벡터)
@@ -212,7 +190,7 @@ L_bar = blkdiag(L1, L2, L3, L4, L5);
 Phi_pinv = pinv(Phi);
 
 
-%% 여기서 좀 복잡한데
+
 
 %% ========= 5) 3개 센서 조합별 Phi_bar_pinv 계산 =========
 
@@ -301,7 +279,6 @@ end
 % r = [r1; r2; ...; r10], 각 r_k는 6x1 (x_hat^(k) - x_hat^(k+1)).
 
 
-%% 상대차수 확인해보기 << 전부 상대차수가 1이 나옴 >>> 이게 자연스러운건가 ?
 
 %% s 파라미터로 양자화
 s = 10000;
@@ -315,24 +292,13 @@ rank(H)
 rank(H_bar)
 
 
-%% r1 = H1 * z_hat // H1 = 1x24
 
-H1 = H_bar(1,:);
-T2 = H1;
-% T1은 [T1; T2] 가 가역이 되는 23x24 크기 행렬 Zq 위에서
-
-% 여기서 
+%% mat. 포맷으로 저장/ F_bar는 정수 , G_, H 는 실수
+% save('FGH_data.mat','F_bar','G_','H');
 
 
 
-save('FGH_data.mat','F_bar','G_','H');
-
-
-
-
-
-
-%% Simulation
+%% Simulation over Real #
 iter = 20;
 
 % plant initial state
@@ -349,7 +315,7 @@ for i = 1:iter
     % plant & observer output
 
     if i == 5 
-        attack = [0; 0; 5; 0; 0];
+        attack = [0; 0; 0; 4; 0];
     else 
         attack = 0;
     end
@@ -438,7 +404,7 @@ ylabel('norm');
 
 
 
-%% ========= residual r를 6개씩 잘라서 10개 노름 플롯 (y축 동일 + 조합 표시) =========
+%% residual r를 6개씩 잘라서 10개 노름 플롯
 
 % r 크기: 60 x iter  (각 6개가 하나의 residual r_k)
 t_r = Ts*(0:iter-1);
@@ -480,12 +446,12 @@ end
 
 
 
-%% 프린트 뽑으려고 씀
+%% 파이썬 포맷 프린트
 
 % print_numpy('A', A, 6);
 % print_numpy('B', B, 6);
-print_numpy('C', C, 0);
-print_numpy('Phi_pinv_bar', Phi_pinv_bar, 0);
+% print_numpy('C', C, 0);
+% print_numpy('Phi_pinv_bar', Phi_pinv_bar, 0);
 % print_numpy('K', K, 6);
 % 
 % 

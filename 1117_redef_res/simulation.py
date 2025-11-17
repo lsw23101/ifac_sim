@@ -2,22 +2,18 @@
 import numpy as np
 from scipy.io import loadmat
 from sympy import isprime
-from enc_func_test import *
+from enc_func import *
 import matplotlib.pyplot as plt   # ✅ 플로팅용
-
-### Todo : Phi 행렬도 가져와서 상태추정도 넣어야...
-
 
 # 파라미터 생성
 Ts = 1  # 샘플링타임 1초
-env = Params()  # 환경 설정
-sk = Seret_key(env)
-# print("q is prime?", isprime(env.q))
-# print("N is", env.N)
+env = Params()  # 환경 변수 
+sk = Seret_key(env) # 비밀키
 
+# print("q 소수: ", isprime(env.q))
 
 # 오프라인 행렬들 준비
-# === 오프라인에서 계산해둔 행렬들 로드 ===
+# 양자화 s 파라미터는 10000으로 고정
 offline = np.load("offline_mats.npz", allow_pickle=True)
 
 F_bar = offline["F_bar"]          # 24x24
@@ -33,7 +29,7 @@ Psi_all  = offline["Psi_all"]     # 60x1x23
 Sigma_all = offline["Sigma_all"]  # 60x1x6
 Sigma_pinv_all = offline["Sigma_pinv_all"]  # 60x6x1 (dtype=object)
 
-# 이산화된 A B C 행렬
+# 이산화된 플랜트 A B C 행렬
 A = np.array([
     [ 0.572915, 0.222492, 0.294165, 0.228264, 0.132920, 0.268409 ],
     [ 0.790746, 0.417171, 4.709138, 0.134381, -5.499884, -0.054966 ],
@@ -56,7 +52,7 @@ C = np.array([
 # K 피드백 게인
 K = np.array([ -0.010617, -0.010772, -0.009818, -0.010584, -0.007183, -0.011472 ], dtype=np.float64)  # shape (6,)
 
-# Phi_pinv (정수 기반 선형변환 행렬)
+# Phi_pinv_bar 
 Phi_pinv_bar = np.array([
     [  658,   -921,   896,   912,  -2327,   3662,   717,   940,  1166,  2102,   170,    83,   622,   715,   359,   930,   608,   352,   759,  1560,   375,   587,   644,  1172 ],
     [ -8296,  17959, -12313, 18278, 12766, -29386, -8885, 19007,  -764, -11054, 11395, -32194, 31836, -24889, -28947, 41807, -7821, -22733, -23988, -18332, -31832,  4224, -40846, -52861 ],
@@ -69,7 +65,7 @@ Phi_pinv_bar = np.array([
 
 # 초기값 설정
 iter = 100
-n_channels = 60
+n_channels = 60 # j_index
 execution_times = []  # 실행 시간을 저장할 리스트
 
 # 양자화 파라미터
@@ -77,8 +73,8 @@ r_quant = 10000
 s_quant = 10000
 
 # 초기값들
-xp0 = np.array([[0.2], [0.2], [0.2], [0.2], [0.2], [0.2]])
-z_hat0 = np.full((24, 1), 0.1, dtype=float)  # 24x1, 모든 원소 0.1
+xp0 = np.array([[0.2], [0.2], [0.2], [0.2], [0.2], [0.2]])          # 플랜트 초기값
+z_hat0 = np.full((24, 1), 0.1, dtype=float)                         # z_hat 초기값
 attack_arr = np.zeros(iter)   # 각 k에서 주입한 공격 신호 저장
 
 xp = [xp0]
@@ -106,75 +102,13 @@ for j in range(n_channels):
     Z_hat_list.append(Z_hat_j)
     b_xi_list.append(b_xi_j)
 
-######### 디버그용
-
-# # ==== Phi_pinv_bar 기반 테스트 ====
-# # 1) 암호화 전: z_hat_bar 에 Phi_pinv_bar 곱한 결과
-# X_plain_q = Phi_pinv_bar @ z_hat_bar        # 6 x 1 (정수 스케일)
-
-# # 2) 암호화 후: Z_hat_list[0] 에 Phi_pinv_bar 곱한 뒤 복호화
-# X_cipher = Mod(Phi_pinv_bar @ Z_hat_list[0], env.q)  # 6 x (N+2)
-# X_dec_q  = Dec(X_cipher, sk, env)                    # 6 x 1
-
-# # 3) 둘 다 s_quant 로 스케일 다운해서 비교
-# X_plain = np.asarray(X_plain_q, dtype=float) / (s_quant * s_quant * r_quant)
-# X_dec   = np.asarray(X_dec_q,  dtype=float) / (s_quant * s_quant * r_quant)
-
-# print("\nX_cipher first column:\n", X_cipher[:, [0]])
-
-# print("X_plain (before enc, scaled by s_quant):")
-# print(X_plain)
-
-# print("\nX_dec (after enc+dec, scaled by s_quant):")
-# print(X_dec)
-
-# print("\nmax |X_plain - X_dec| =", np.max(np.abs(X_plain - X_dec)))
-
-
-# ######### 추가 디버그: z = [1,...,1]^T 테스트 #########
-
-# # 1) 테스트용 z_test: 24x1, 모든 원소 1.0
-# z_test = np.ones((24, 1), dtype=float)
-
-# # 2) 양자화: z_test_bar = round(z_test * r_quant * s_quant)
-# z_test_bar = np.round(z_test * r_quant * s_quant).astype(int)   # 24x1
-
-# # 3) Enc_state로 암호화 (채널 0의 T1,T2,V2 사용)
-# T1_0 = T1_all[0]
-# T2_0 = T2_all[0]
-# V2_0 = V2_all[0]
-
-# Z_hat_test, b_xi_test = Enc_state(z_test_bar, sk, env, T1_0, T2_0, V2_0)
-# # Z_hat_test: 24 x (N+2)
-
-# # 4) 암호화 전: Phi_pinv_bar @ z_test_bar
-# X_plain2_q = Mod(Phi_pinv_bar @ z_test_bar, env.q)           # 6 x 1
-
-# # 5) 암호화 후: Phi_pinv_bar @ Z_hat_test → Dec
-# X_cipher2   = Mod(Phi_pinv_bar @ Z_hat_test, env.q)  # 6 x (N+2)
-# X_dec2_q    = Dec(X_cipher2, sk, env)                # 6 x 1
-
-# # 6) 스케일 복원 (z_test_bar 만들 때 곱해준 r*s*s로 나눔)
-# X_plain2 = np.asarray(X_plain2_q, dtype=float) / (r_quant * s_quant * s_quant)
-# X_dec2   = np.asarray(X_dec2_q,  dtype=float) / (r_quant * s_quant * s_quant)
-
-# print("\n===== z_test = [1,...,1]^T 기반 테스트 =====")
-# print("X_plain2 (before enc, scaled back):")
-# print(X_plain2)
-
-# print("\nX_dec2 (after enc+dec, scaled back):")
-# print(X_dec2)
-
-# print("\nmax |X_plain2 - X_dec2| =", np.max(np.abs(X_plain2 - X_dec2)))
-
-
-
-###########################
 
 # ==================
 #  Simulation loop
 # ==================
+
 for k in range(iter):
+
     # 1) 플랜트 출력 y_k = C x_k
     y_k = C @ xp[-1]          # 5x1, float64
     y.append(y_k)
@@ -201,7 +135,7 @@ for k in range(iter):
     # 4) 양자화
     v_bar = np.round(v * r_quant).astype(int)  # 6x1
 
-    # 5) 각 채널에 대해 R_j, Enc_t, Z_hat_j, b_xi_j 업데이트
+    # 5) 각 인덱스에 대하여 r_j, Z_hat_j, 동적 마스킹 파트 업데이트
     for j in range(n_channels):
         # (a) 이 채널의 오프라인 행렬들
         H_j = H_bar[j, :].reshape(1, 24)              # 1x24
@@ -220,12 +154,11 @@ for k in range(iter):
         # 첫 번째 항만 잔차로 사용 (스칼라)
         r_j = R_bar_j[0, 0]                           # 스칼라 (object)
         # 양자화 풀어서 실수로 본 residue (대략)
-        r_j_real = float(r_j) / (r_quant * s_quant * s_quant)
+        r_j_real = float(r_j) / (r_quant * s_quant * s_quant * env.L) 
         residue_real_mat[k, j] = r_j_real
 
         # (c) Enc_t로 출력 암호화 (채널별 S_xi_j, S_v_j, ...)
-        V_j, b_v_j = Enc_t(v_bar, sk, b_xi_j, S_xi_j, S_v_j,
-                           Sigma_pinv_j, Sigma_j, Psi_j, env)
+        V_j, b_v_j = Enc_t(v_bar, sk, b_xi_j, Sigma_pinv_j, Sigma_j, Psi_j, env)
         # V_j: 6 x (N+2), b_v_j: 6 x 1
 
         # (d) 암호화된 옵저버 상태 업데이트: Z_hat_{k+1}^j
@@ -239,13 +172,12 @@ for k in range(iter):
         Z_hat_list[j] = Z_hat_j_next
         b_xi_list[j]  = b_xi_j_next
 
-    # 5-1) 상태 추정 x_hat 계산 (채널 0 기준)
-    # Z_hat_list[0] : 24 x (N+2) 암호화된 옵저버 상태
+    # 5-1) z(t) \in 24x1 로 상태 추정
     # Phi_pinv_bar  : 6 x 24  -> X_hat_cipher : 6 x (N+2)
-    
-    Z_hat_ref = Z_hat_list[0]  # 하나의 채널 기준으로 사용
+    Z_hat_ref = Z_hat_list[1]  # 하나 가져오기 (Z_hat은 마스킹 파트만 다르고 메세지는 같음)
     X_hat_cipher = Mod(Phi_pinv_bar @ Z_hat_ref, env.q)  # 6 x (N+2)
 
+    # 복호화
     x_hat_int = Dec(X_hat_cipher, sk, env)
     x_hat_list.append(x_hat_int/ (r_quant * s_quant * s_quant))
 
@@ -371,9 +303,10 @@ for g in range(10):
         f"[{comb_knext[0]} {comb_knext[1]} {comb_knext[2]}]"
     )
 
-    ax.set_ylim(ymin, ymax)   # ✅ 모든 서브플롯 동일 y축 범위
+    ax.set_ylim(ymin, ymax)   # 모든 서브플롯 동일 y축 범위
 
 axes[-1].set_xlabel("time")  # 마지막 subplot에만 x label
 
 plt.tight_layout(rect=[0, 0, 1, 0.96])  # suptitle 안 가리게 여백 조정
 plt.show()
+
