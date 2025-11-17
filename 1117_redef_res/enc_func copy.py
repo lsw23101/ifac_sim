@@ -10,10 +10,10 @@ import random
 class Params:
     def __init__(self):
         # 여기서 K의 최댓값은 355,700,000 (참고용)
-        self.p = int(2**44)   # p 
-        self.L = int(2**20)   # L 
-        self.r = 3          # 오류 범위 # 균등분포
-        self.N = 3            # 키 차원 # 연산량...
+        self.p = int(2**54)   # p 
+        self.L = int(2**10)   # L 
+        self.r = 0         # 오류 범위 # 균등분포
+        self.N = 5            # 키 차원 # 연산량...
         # 2^64 근처 소수
         self.q = self.p * self.L - 59    # 18446744073709551557
 
@@ -63,10 +63,8 @@ def Enc_state(z_hat_bar, sk, env, T1, T2, V2):
     sk = np.asarray(sk, dtype=object).reshape(N, 1)
 
     # 1) A, e 
-    A = np.random.randint(-10, 100000001, size=(n, N)).astype(object)  # 24xN # -10부터 10까지의 랜덤 값으로 (24xN) 배열 생성
+    A = np.random.randint(-10, 11, size=(n, N)).astype(object)  # 24xN # -10부터 10까지의 랜덤 값으로 (24xN) 배열 생성
     e = np.random.randint(-env.r, env.r + 1, size=(n, 1)).astype(object)  # 6x1 
-
-    e = np.zeros((n, 1), dtype=object)     
 
     # 2) b_ini = A sk + e
     b_ini = A @ sk + e
@@ -121,12 +119,11 @@ def Enc_t(v, sk, b_xi, Sigma_pinv, Sigma, Psi, env):
     Psi = np.asarray(Psi, dtype=object).reshape(1, 23)
 
     # 1) Av, e 생성
-    Av = np.random.randint(-10, 1000001, size=(n_v, N)).astype(object)  # 6xN, -10~10
-    # e = np.random.randint(-env.r, env.r + 1, size=(n_v, 1)).astype(object)  # 6x1              
-    e = np.zeros((n_v, 1), dtype=object)     
+    Av = np.random.randint(-10, 11, size=(n_v, N)).astype(object)  # 6xN, -10~10
+    e = np.random.randint(-env.r, env.r + 1, size=(n_v, 1)).astype(object)  # 6x1              
 
     # 2) b_v = Av sk + e (6x1)
-    b_v = Mod(Av @ sk + e, env.q)
+    b_v = Av @ sk + e
     b_v = Mod(b_v, env.q)
 
     # 3) b_prime = Sigma_pinv @ (Sigma @ b_v + Psi @ b_xi) (6x1)

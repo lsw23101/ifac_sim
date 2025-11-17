@@ -29,6 +29,28 @@ Psi_all  = offline["Psi_all"]     # 60x1x23
 Sigma_all = offline["Sigma_all"]  # 60x1x6
 Sigma_pinv_all = offline["Sigma_pinv_all"]  # 60x6x1 (dtype=object)
 
+
+
+
+print("\nF_bar dtype:", F_bar.dtype)
+print("G_bar:", G_bar.dtype)
+print("H_bar:", H_bar.dtype)
+
+print("T1 dtype:", T1_all.dtype)
+print("T2 dtype:", T2_all.dtype)
+print("V1 dtype:", V1_all.dtype)
+print("V2 dtype:", V2_all.dtype)
+print("S_xi dtype:", S_xi_all.dtype)
+print("S_v dtype:", S_v_all.dtype)
+print("Psi dtype:", Psi_all.dtype)
+print("Sigma dtype:", Sigma_all.dtype)
+print("Sigma_pinv_all dtype:", Sigma_pinv_all.dtype)
+
+
+
+
+
+
 # 이산화된 플랜트 A B C 행렬
 A = np.array([
     [ 0.572915, 0.222492, 0.294165, 0.228264, 0.132920, 0.268409 ],
@@ -64,7 +86,7 @@ Phi_pinv_bar = np.array([
 
 
 # 초기값 설정
-iter = 2
+iter = 100
 n_channels = 60 # j_index
 execution_times = []  # 실행 시간을 저장할 리스트
 
@@ -88,7 +110,7 @@ x_hat_list = []
 residue_real_mat = np.zeros((iter, n_channels))
 
 # 초기 양자화된 옵저버 상태 (모든 채널에서 동일 초기 z_hat0 사용)
-z_hat_bar = np.round(z_hat0 * r_quant * s_quant).astype(int)
+z_hat_bar = np.round(z_hat0 * r_quant * s_quant).astype(object)
 
 # 채널별 암호화 상태 Z_hat_j, 마스킹 상태 b_xi_j 초기화
 Z_hat_list = []   # 길이 60, 각 원소는 24 x (N+2)
@@ -243,7 +265,7 @@ for k in range(iter):
     if k >= attack_start:
         # 예시: 점점 커지면서 진동하는 공격 (원하면 식은 바꿔도 됨)
         alpha = (k - attack_start) / attack_start   # 0 → 1 정도 스케일
-        # alpha = 0
+        alpha = 0
         attack_scalar = alpha * np.sin(k - attack_start)
     else:
         attack_scalar = 0.0
@@ -276,8 +298,11 @@ for k in range(iter):
 
         # 첫 번째 항만 잔차로 사용 (스칼라, mod q 정수로 정리)
         r_j = Mod(R_bar_j[0, 0], env.q)              # Python int, mod q
+        
+        test = Dec(R_bar_j, sk, env)
 
-
+        # print("r_j", r_j)
+        # print("test", test)
         # --- 디버깅 출력 1: 원래 r_j (mod q) ---
         # print(f"[k={k}, j={j}] R_bar_j[0,0] (mod q) = {r_j}")
 
@@ -326,7 +351,7 @@ for k in range(iter):
 
     # 복호화
     x_hat_int = Dec(X_hat_cipher, sk, env)
-    x_hat_list.append(x_hat_int/ (r_quant * s_quant * s_quant))
+    x_hat_list.append(x_hat_int/ (r_quant * s_quant * s_quant *env.L))
 
     # 6) 플랜트 상태 업데이트: x_{k+1} = A x_k + B u_k
     xp_next = A @ xp[-1] + B.reshape(-1, 1) * u_k   # B: (6,) -> (6,1)

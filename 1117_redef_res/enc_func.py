@@ -10,12 +10,16 @@ import random
 class Params:
     def __init__(self):
         # 여기서 K의 최댓값은 355,700,000 (참고용)
-        self.p = int(2**54)   # p 
-        self.L = int(2**10)   # L 
-        self.r = 19          # 오류 범위 # 균등분포
+        self.p = int(2**44)   # p 
+        self.L = int(2**20)   # L 
+        self.r = 19           # 오류 범위 # 균등분포
         self.N = 5            # 키 차원 # 연산량...
         # 2^64 근처 소수
         self.q = self.p * self.L - 59    # 18446744073709551557
+        # L의 모듈러 역원 (L^{-1} mod q) 미리 계산해서 저장
+        L_mod = self.L % self.q
+        self.invL = pow(L_mod, -1, self.q)   # int 타입
+
 
 env = Params()
 
@@ -37,6 +41,16 @@ def Mod(x, p):
         return r
 
     return np.vectorize(centered, otypes=[object])(x_arr)
+
+def rand_mod_q(shape, q):
+    """
+    shape 모양의 배열에 대해 [0, q-1] 에서 균일분포 랜덤 정수 생성 (dtype=object)
+    np.random.randint 로는 q가 너무 커서 안 되므로 Python random 사용
+    """
+    arr = np.empty(shape, dtype=object)
+    for idx in np.ndindex(shape):
+        arr[idx] = random.randrange(q)
+    return arr
 
 
 
@@ -63,12 +77,14 @@ def Enc_state(z_hat_bar, sk, env, T1, T2, V2):
     sk = np.asarray(sk, dtype=object).reshape(N, 1)
 
     # 1) A, e 
-    A = np.random.randint(-10, 11, size=(n, N)).astype(object)  # 24xN # -10부터 10까지의 랜덤 값으로 (24xN) 배열 생성
-    e = np.random.randint(-env.r, env.r + 1, size=(n, 1)).astype(object)  # 6x1 
+    A = rand_mod_q((n, N), env.q)   # 24 x N, entries in [0, q-1]
+    # A = np.random.randint(0, 50, size=(n, N)).astype(object)
+
+    # e = np.random.randint(-env.r, env.r + 1, size=(n, 1)).astype(object)  # 6x1 에러주입
+    e = np.zeros((n, 1), dtype=object) # 테스트용 에러 0
 
     # 2) b_ini = A sk + e
-    b_ini = A @ sk + e
-    b_ini = Mod(b_ini, env.q)
+    b_ini = Mod(A @ sk + e, env.q)
 
     # 3) b_tilde, b_xi_ini
     b_tilde = T2 @ b_ini           # 1x1
@@ -119,16 +135,16 @@ def Enc_t(v, sk, b_xi, Sigma_pinv, Sigma, Psi, env):
     Psi = np.asarray(Psi, dtype=object).reshape(1, 23)
 
     # 1) Av, e 생성
-    Av = np.random.randint(-10, 11, size=(n_v, N)).astype(object)  # 6xN, -10~10
-    e = np.random.randint(-env.r, env.r + 1, size=(n_v, 1)).astype(object)  # 6x1              
+    # Av = rand_mod_q((n_v, N), env.q)   # 6 x N, entries in [0, q-1]
+    Av= np.random.randint(0, 1000000, size=(n_v, N)).astype(object)
+    # e = np.random.randint(-env.r, env.r + 1, size=(n_v, 1)).astype(object)  # 6x1              
+    e = np.zeros((n_v, 1), dtype=object)
 
     # 2) b_v = Av sk + e (6x1)
-    b_v = Av @ sk + e
-    b_v = Mod(b_v, env.q)
+    b_v = Mod(Av @ sk + e, env.q)
 
     # 3) b_prime = Sigma_pinv @ (Sigma @ b_v + Psi @ b_xi) (6x1)
-    tmp = Sigma @ b_v + Psi @ b_xi   # 1x1
-    tmp = Mod(tmp, env.q)
+    tmp = Mod(Sigma @ b_v + Psi @ b_xi , env.q)
     b_prime = Sigma_pinv @ tmp       # 6x1
     b_prime = Mod(b_prime, env.q)
 
@@ -158,115 +174,7 @@ def Dec(ciphertext, sk, env):
     # 2) centered 로 다시 잡기 [-q/2, q/2)
     m_center = Mod(m_bar, env.q)   # 여기서 Mod는 네가 정의한 centered 함수
     
-    L = env.L
-
-    # 수정 필요
-    m_dec = np.vectorize(
-        lambda x: int(round(int(x) / L)), 
-        otypes=[object]
-    )(m_center)
-
     # 3) 스케일링은 호출하는 쪽에서 알아서 (L, r_quant, s_quant 등)
-    return m_dec
+    return m_center
 
-
-# 상대차수가 모두 1 => H 행벡터 가져오고 나머지 T1은 표준기저로 설정
-# 역행렬 V도 표준기저와 20번째 행이 Zq의 역원으로 계산
-def build_TV(H1, q):
-    """
-    입력:  
-        H1 : 1×24 numpy object vector  
-        q  : modulus
-
-    출력:  
-        T1, T2, T, V, V1, V2
-
-    설계:
-      - pivot column = 20번째 열 (0-based index 19)
-      - T1 : 23x24, 20열만 제외한 나머지 23개 열에 대한 선택행렬
-      - T2 = H1
-      - T  = [T1; T2]
-      - V  = T^{-1} (mod q) 를 closed-form으로 직접 구성
-      - V  = [V1 V2] with V1: 24x23, V2: 24x1
-    """
-
-    H1 = np.asarray(H1, dtype=object).reshape(24,)
-    n = 24
-    pivot = 19  # 0-based index, = 20번째 열
-
-    # -------------------------
-    # 1) T1 만들기 : "pivot 열만 제외한 표준 기저"
-    # -------------------------
-    T1 = np.zeros((n - 1, n), dtype=object)  # 23x24
-    cols = list(range(n))
-    cols.remove(pivot)   # [0,1,...,18,20,21,22,23]
-    for row, col in enumerate(cols):
-        T1[row, col] = 1
-
-    # 2) T2 = H1
-    T2 = H1.reshape(1, n)
-
-    # 3) T = [T1; T2]
-    T = np.vstack([T1, T2])
-
-    # print("[build_TV] T1 shape:", T1.shape)
-    # print("[build_TV] T  shape:", T.shape)
-
-    # -------------------------
-    # 4) V = T^{-1} (mod q) 
-    # -------------------------
-    V = np.zeros((n, n), dtype=object)
-
-    # print("T", T)
-    # print("V", V)
-
-    # pivot 값 및 역원
-    h_p = int(H1[pivot]) % q
-    if h_p == 0:
-        raise ValueError("H1[19] (20번째 원소) ≡ 0 (mod q) 입니다. pivot으로 사용할 수 없습니다.")
-    inv_h_p = pow(h_p, -1, q)
-
-
-    # 앞의 n-1개 열 (1~23열) 채우기
-    #
-    # 열 j (0 <= j < n-1) 는 "원래 인덱스 orig_idx"에 대응:
-    #   j < pivot  ->  orig_idx = j
-    #   j >= pivot ->  orig_idx = j + 1   (pivot 열을 건너뛴 것)
-    #
-    # 행 i != pivot:
-    #   orig_idx == i 이면 V[i,j] = 1  (항등)
-    #   아니면 0
-    #
-    # 행 i == pivot:
-    #   V[pivot, j] = - H1[orig_idx] / H1[pivot]  (mod q)
-    #
-    for j in range(n - 1):  # 0..22
-        orig_idx = j if j < pivot else j + 1  # 0-based
-        h_orig = int(H1[orig_idx]) % q
-
-        for i in range(n):
-            if i == pivot:
-                # pivot 행: -h_orig / h_p (mod q)
-                V[i, j] = (-h_orig * inv_h_p) % q
-            else:
-                # identity mapping
-                if i == orig_idx:
-                    V[i, j] = 1
-                else:
-                    V[i, j] = 0
-
-    # 마지막 열 (23, 즉 24번째 열):
-    #   모든 행 0, 단 pivot 행에만 1/h_p
-    for i in range(n):
-        V[i, n - 1] = 0
-    V[pivot, n - 1] = inv_h_p % q
-
-    # print("inverse test:", Mod(T@V, env.q))
-    # -------------------------
-    # 5) V1, V2 분리
-    # -------------------------
-    V1 = V[:, :n - 1].copy()          # 24x23
-    V2 = V[:, n - 1].reshape(n, 1)    # 24x1
-
-    return T1, T2, T, V, V1, V2
 

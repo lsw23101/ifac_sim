@@ -265,13 +265,14 @@ end
 H = zeros(6*10, 24);
 
 for k = 1:10
-    k_next = mod(k,10) + 1;       % 1→2, 2→3, ..., 10→1 (cyclic)
+    % 각 조합에 대한 residual:
+    % r_k = (H_k{k} - Phi_pinv) * z
+    H_block = H_k{k} - Phi_pinv;     % 6 x 24
 
-    H_block = H_k{k} - H_k{k_next};     % 6 x 24
-
-    rows = (6*(k-1)+1) : (6*k);         % 해당 r_k 위치
+    rows = (6*(k-1)+1) : (6*k);      % 해당 r_k 위치
     H(rows, :) = H_block;
 end
+
 
 % 이제 H 는 60x24 행렬이고,
 % z_bar = [z1; z2; z3; z4; z5] 에 대해
@@ -283,7 +284,7 @@ end
 %% s 파라미터로 양자화
 s = 10000;
 
-Phi_pinv_bar = round(s * Phi_pinv)
+Phi_pinv_bar = round(s * Phi_pinv);
 F_bar; % 이미 정수
 H_bar = round(s * H); % H를 양자화
 G_bar = round(s * G_);% G_를 양자화
@@ -294,7 +295,7 @@ rank(H_bar)
 
 
 %% mat. 포맷으로 저장/ F_bar는 정수 , G_, H 는 실수
-% save('FGH_data.mat','F_bar','G_','H');
+save('FGH_data.mat','F_bar','G_','H');
 
 
 
@@ -315,7 +316,7 @@ for i = 1:iter
     % plant & observer output
 
     if i == 5 
-        attack = [0; 0; 0; 4; 0];
+        attack = [0; 0; 0; 0; 0];
     else 
         attack = 0;
     end
@@ -451,7 +452,7 @@ end
 % print_numpy('A', A, 6);
 % print_numpy('B', B, 6);
 % print_numpy('C', C, 0);
-% print_numpy('Phi_pinv_bar', Phi_pinv_bar, 0);
+print_numpy('Phi_pinv_bar', Phi_pinv_bar, 0);
 % print_numpy('K', K, 6);
 % 
 % 

@@ -1,3 +1,5 @@
+
+
 import numpy as np
 from scipy.io import loadmat
 from enc_func import *
@@ -45,16 +47,23 @@ def build_TV(H1, q):
     # 3) T = [T1; T2]
     T = np.vstack([T1, T2])
 
+    # print("[build_TV] T1 shape:", T1.shape)
+    # print("[build_TV] T  shape:", T.shape)
+
     # -------------------------
     # 4) V = T^{-1} (mod q) 
     # -------------------------
     V = np.zeros((n, n), dtype=object)
+
+    # print("T", T)
+    # print("V", V)
 
     # pivot 값 및 역원
     h_p = int(H1[pivot]) % q
     if h_p == 0:
         raise ValueError("H1[19] (20번째 원소) ≡ 0 (mod q) 입니다. pivot으로 사용할 수 없습니다.")
     inv_h_p = pow(h_p, -1, q)
+
 
     # 앞의 n-1개 열 (1~23열) 채우기
     #
@@ -90,6 +99,7 @@ def build_TV(H1, q):
         V[i, n - 1] = 0
     V[pivot, n - 1] = inv_h_p % q
 
+    # print("inverse test:", Mod(T@V, env.q))
     # -------------------------
     # 5) V1, V2 분리
     # -------------------------
@@ -99,6 +109,9 @@ def build_TV(H1, q):
     return T1, T2, T, V, V1, V2
 
 
+
+
+
 def compute_offline_mats(env, s=10000, num_channels=60):
     data = loadmat('FGH_data.mat')
     F_ = data['F_bar']
@@ -106,15 +119,14 @@ def compute_offline_mats(env, s=10000, num_channels=60):
     H_ = data['H']
 
     # 양자화
+    
     F_bar_float = F_
     G_bar_float = np.rint(s * G_)
     H_bar_float = np.rint(s * H_)
 
-    # 일단 int로 만들고, 이후 npz 로 저장 후 load 단계에서 object로 캐스팅
-    # 🔹 float -> int -> object-int
-    F_bar = F_bar_float.astype(int).astype(object)      # 24x24
-    G_bar = G_bar_float.astype(int).astype(object)      # 24x6
-    H_bar = H_bar_float.astype(int).astype(object)      # 60x24
+    F_bar = np.vectorize(int)(F_bar_float)
+    G_bar = np.vectorize(int)(G_bar_float)
+    H_bar = np.vectorize(int)(H_bar_float)
 
     # 채널 수만큼 저장할 배열 예시 (axis 0 = 채널 index)
     T1_all = []
@@ -138,9 +150,9 @@ def compute_offline_mats(env, s=10000, num_channels=60):
         S_2  = Mod(T1 @ F_bar @ V2, env.q)
         S_3  = Mod(T1 @ G_bar,      env.q)
 
-        Psi   = Mod(H1.reshape(1, -1) @ F_bar @ V1, env.q)
-        Gamma = Mod(H1.reshape(1, -1) @ F_bar @ V2, env.q)   # 안 쓰더라도 일단 계산
-        Sigma = Mod(H1.reshape(1, -1) @ G_bar,      env.q)
+        Psi  = Mod(H1.reshape(1,-1) @ F_bar @ V1, env.q)
+        Gamma = Mod(H1.reshape(1,-1) @ F_bar @ V2, env.q)
+        Sigma = Mod(H1.reshape(1,-1) @ G_bar,      env.q)
 
         sigma0 = int(Sigma[0, 0])
         if sigma0 == 0:
@@ -150,7 +162,7 @@ def compute_offline_mats(env, s=10000, num_channels=60):
         Sigma_pinv[0, 0] = inv_sigma0
 
         S_xi = Mod(S_1 - S_3 @ Sigma_pinv @ Psi, env.q)
-        S_v  = Mod(S_3 @ (np.zeros((6, 6), dtype=object) - Sigma_pinv @ Sigma), env.q)
+        S_v  = Mod(S_3 @ (np.zeros((6, 6), dtype=object) - Sigma_pinv@Sigma), env.q)
 
         T1_all.append(T1)
         T2_all.append(T2)
@@ -171,7 +183,7 @@ def compute_offline_mats(env, s=10000, num_channels=60):
     S_v_all = np.stack(S_v_all, axis=0)
     Psi_all = np.stack(Psi_all, axis=0)
     Sigma_all = np.stack(Sigma_all, axis=0)
-    # Sigma_pinv_all 은 리스트 형태 그대로 저장 (채널별 6x1)
+    # Sigma_pinv_all 은 shape이 약간 다를 수 있으니 obj 배열로 둘 수도 있음
 
     offline = {
         "F_bar": F_bar,
@@ -185,139 +197,79 @@ def compute_offline_mats(env, s=10000, num_channels=60):
         "S_v_all": S_v_all,
         "Psi_all": Psi_all,
         "Sigma_all": Sigma_all,
-        "Sigma_pinv_all": np.array(Sigma_pinv_all, dtype=object),
+        "Sigma_pinv_all": Sigma_pinv_all,
     }
     return offline
 
 
-# ==========================
-# npz 파일 읽고 / 쓰기
-# ==========================
 
+
+# npz 파일 읽고 쓰기
 def save_offline_mats(offline, filename="offline_mats.npz"):
     np.savez(filename, **offline)
 
 
-def _to_object_int(arr):
-    """
-    offline_mats 로드 시, 모든 오프라인 행렬을
-    big-int 모듈러 연산이 가능한 dtype=object 정수 배열로 변환.
-    """
-    # 이미 object면 그대로
-    if arr.dtype == object:
-        return arr
-    # 아니면 int -> object
-    return arr.astype(int).astype(object)
-
-
 def load_offline_mats(filename="offline_mats.npz"):
     data = np.load(filename, allow_pickle=True)
+    return {k: data[k] for k in data.files}
 
-    offline = {}
-
-    # 모듈러 연산에 직접 들어가는 애들 전부 object-int로 변환
-    int_keys = [
-        "F_bar",
-        "G_bar",
-        "H_bar",
-        "T1_all",
-        "T2_all",
-        "V1_all",
-        "V2_all",
-        "S_xi_all",
-        "S_v_all",
-        "Psi_all",
-        "Sigma_all",
-    ]
-
-    for k in data.files:
-        if k in int_keys:
-            offline[k] = _to_object_int(data[k])
-        elif k == "Sigma_pinv_all":
-            # (num_channels,) object 배열, 각 원소 6x1
-            sigma_list = data[k]
-            sigma_obj = []
-            for sigma in sigma_list:
-                sigma_obj.append(_to_object_int(sigma))
-            offline[k] = np.array(sigma_obj, dtype=object)
-        else:
-            # 나머지는 그대로 보존
-            offline[k] = data[k]
-
-    return offline
-
-
-# ==========================
-# main: 생성 + 저장 + 로드 + dtype 확인
-# ==========================
 
 if __name__ == "__main__":
     env = Params()
-
-    # 1) 오프라인 행렬 계산 및 저장
     offline = compute_offline_mats(env)
     save_offline_mats(offline)
     print("오프라인 행렬 저장 완료\n")
 
-    # 2) 바로 다시 읽어서 object-int로 잘 들어오는지 확인
-    offline_loaded = load_offline_mats("offline_mats.npz")
+    ##  디버그용 프린트
 
-    F_bar = offline_loaded["F_bar"]
-    G_bar = offline_loaded["G_bar"]
-    H_bar = offline_loaded["H_bar"]
+    F_bar = offline["F_bar"]
+    G_bar = offline["G_bar"]
+    H_bar = offline["H_bar"]
 
-    print("===== dtypes after load_offline_mats (should be object) =====")
-    print("F_bar.dtype:", F_bar.dtype)
-    print("G_bar.dtype:", G_bar.dtype)
-    print("H_bar.dtype:", H_bar.dtype)
+    print("===== F_bar =====")
+    print(F_bar)
+    print("\n===== G_bar =====")
+    print(G_bar)
+    print("\n===== H_bar =====")
+    print(H_bar)
 
     # === 채널 0의 오프라인 행렬들 출력 ===
     ch = 0
-    print(f"\n===== Channel {ch} offline matrices (loaded) =====")
+    print(f"\n===== Channel {ch} offline matrices =====")
 
-    T1_all         = offline_loaded["T1_all"]
-    T2_all         = offline_loaded["T2_all"]
-    V1_all         = offline_loaded["V1_all"]
-    V2_all         = offline_loaded["V2_all"]
-    S_xi_all       = offline_loaded["S_xi_all"]
-    S_v_all        = offline_loaded["S_v_all"]
-    Psi_all        = offline_loaded["Psi_all"]
-    Sigma_all      = offline_loaded["Sigma_all"]
-    Sigma_pinv_all = offline_loaded["Sigma_pinv_all"]  # (num_channels,) object
+    T1_all         = offline["T1_all"]
+    T2_all         = offline["T2_all"]
+    V1_all         = offline["V1_all"]
+    V2_all         = offline["V2_all"]
+    S_xi_all       = offline["S_xi_all"]
+    S_v_all        = offline["S_v_all"]
+    Psi_all        = offline["Psi_all"]
+    Sigma_all      = offline["Sigma_all"]
+    Sigma_pinv_all = offline["Sigma_pinv_all"]  # 리스트 형태
 
-    print("\nT1 dtype:", T1_all.dtype)
-    print("T2 dtype:", T2_all.dtype)
-    print("V1 dtype:", V1_all.dtype)
-    print("V2 dtype:", V2_all.dtype)
-    print("S_xi dtype:", S_xi_all.dtype)
-    print("S_v dtype:", S_v_all.dtype)
-    print("Psi dtype:", Psi_all.dtype)
-    print("Sigma dtype:", Sigma_all.dtype)
-    print("Sigma_pinv_all dtype:", Sigma_pinv_all.dtype)
-
-    print("\nT1[0]:")
+    print("\nT1:")
     print(T1_all[ch])
 
-    print("\nT2[0]:")
+    print("\nT2:")
     print(T2_all[ch])
 
-    print("\nV1[0]:")
+    print("\nV1:")
     print(V1_all[ch])
 
-    print("\nV2[0]:")
+    print("\nV2:")
     print(V2_all[ch])
 
-    print("\nS_xi[0]:")
+    print("\nS_xi:")
     print(S_xi_all[ch])
 
-    print("\nS_v[0]:")
+    print("\nS_v]:")
     print(S_v_all[ch])
 
-    print("\nPsi[0]:")
+    print("\nPsi:")
     print(Psi_all[ch])
 
-    print("\nSigma[0]:")
+    print("\nSigma:")
     print(Sigma_all[ch])
 
-    print("\nSigma_pinv[0]:")
+    print("\nSigma_pinv:")
     print(Sigma_pinv_all[ch])
